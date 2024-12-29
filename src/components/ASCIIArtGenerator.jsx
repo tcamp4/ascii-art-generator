@@ -13,6 +13,9 @@ const ASCIIArtGenerator = () => {
     inverted: false,
     colorMode: 'none'  // 'none', 'grayscale', or 'rgb'
   });
+  const [prompt, setPrompt] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState(null);
 
   const characterSets = {
     simple: " .,-~:;=*!#$@",
@@ -41,6 +44,74 @@ const ASCIIArtGenerator = () => {
     const imageData = ctx.getImageData(0, 0, width, height);
     return convertToAscii(imageData);
   };
+
+  const LoadingSpinner = () => (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+    </div>
+  );
+
+  const handleClear = () => {
+    setImage(null);
+    setAscii('');
+    setDisplayedAscii('');
+    setPrompt('');
+    setPreviewUrl(null);
+  };
+
+  
+const generateImage = async () => {
+    setIsGenerating(true);
+    try {
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate image');
+      }
+  
+      const imageBlob = await response.blob();
+      const file = new File([imageBlob], 'generated-image.png', { type: 'image/png' });
+      setPreviewUrl(URL.createObjectURL(file));
+      setImage(file);
+      const result = await processImage(file);
+      if (isTyping) {
+        typeWriter(result);
+      } else {
+        setDisplayedAscii(result);
+      }
+    } catch (error) {
+      console.error('Error generating image:', error);
+    }
+    setIsGenerating(false);
+  };
+
+  const downloadAscii = () => {
+    const element = document.createElement('a');
+    const file = new Blob([displayedAscii], {type: 'text/plain'});
+    element.href = URL.createObjectURL(file);
+    element.download = 'ascii-art.txt';
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  };
+  
+  const downloadImage = () => {
+    if (previewUrl) {
+      const element = document.createElement('a');
+      element.href = previewUrl;
+      element.download = image instanceof File ? image.name : 'generated-image.png';
+      document.body.appendChild(element);
+      element.click();
+      document.body.removeChild(element);
+    }
+  };
+
 
   const convertToAscii = (imageData) => {
     const chars = settings.characters.split('');
@@ -103,10 +174,13 @@ const ASCIIArtGenerator = () => {
     setDisplayedAscii(text);
     setIsTyping(false);
 };
-  const handleFileUpload = async (e) => {
+
+
+const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
       setImage(file);
+      setPreviewUrl(URL.createObjectURL(file));
       const result = await processImage(file);
       setAscii(result);
       
@@ -129,12 +203,46 @@ const ASCIIArtGenerator = () => {
     }
   };
 
-  // In the return statement, update the outer containers:
-return (
+  return (
     <div className="min-h-screen bg-gray-900 p-8">
+      {isGenerating && <LoadingSpinner />}
       <div className="w-full max-w-7xl mx-auto">
         <div className="bg-gray-800 rounded-lg shadow-2xl p-8">
-          <h2 className="text-3xl font-bold mb-8 text-white text-center">ASCII Art Generator</h2>
+          <div className="flex justify-between items-center mb-8">
+            <h2 className="text-3xl font-bold text-white">ASCII Art Generator</h2>
+            <button
+              onClick={handleClear}
+              className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
+            >
+              Clear All
+            </button>
+          </div>
+  
+          <div className="mb-6 space-y-4">
+            <div className="flex gap-4">
+              <input
+                type="text"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Describe the image you want to generate..."
+                className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600"
+              />
+              <button
+                onClick={generateImage}
+                disabled={isGenerating || !prompt}
+                className={`px-6 py-3 rounded-lg font-medium ${
+                  isGenerating || !prompt
+                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                    : 'bg-green-500 text-white hover:bg-green-600'
+                }`}
+              >
+                {isGenerating ? 'Generating...' : 'Generate'}
+              </button>
+            </div>
+            <div className="text-gray-400 text-sm">
+              Or upload your own image:
+            </div>
+          </div>
           
           <div className="space-y-6">
             {/* File upload section */}
@@ -210,23 +318,54 @@ return (
               </label>
             </div>
             
-            {/* Output section */}
-            <div className="mt-6">
-              {settings.colorMode === 'none' ? (
-                <pre 
-                  className="font-mono text-xs whitespace-pre overflow-x-auto p-6 rounded-lg bg-black text-green-500 shadow-lg"
-                  style={{ lineHeight: '1.2' }}
-                >
-                  {displayedAscii}
-                </pre>
-              ) : (
-                <pre 
-                  className="font-mono text-xs whitespace-pre overflow-x-auto p-6 rounded-lg bg-black shadow-lg"
-                  style={{ lineHeight: '1.2' }}
-                  dangerouslySetInnerHTML={{ __html: displayedAscii }}
-                />
-              )}
-            </div>
+            {/* Add this before the Output section */}
+{previewUrl && (
+  <div className="mt-6 p-4 bg-gray-700 rounded-lg">
+    <div className="flex justify-between items-center mb-4">
+      <h3 className="text-white font-bold">Original Image</h3>
+      <button
+        onClick={downloadImage}
+        className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+      >
+        Download Image
+      </button>
+    </div>
+    <img 
+      src={previewUrl} 
+      alt="Original" 
+      className="max-h-64 mx-auto rounded-lg shadow-lg object-contain"
+    />
+  </div>
+)}
+
+{/* Modify your Output section to include the download button */}
+<div className="mt-6">
+  <div className="flex justify-between items-center mb-4">
+    <h3 className="text-white font-bold">ASCII Output</h3>
+    {displayedAscii && (
+      <button
+        onClick={downloadAscii}
+        className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+      >
+        Download ASCII
+      </button>
+    )}
+  </div>
+  {settings.colorMode === 'none' ? (
+    <pre 
+      className="font-mono text-xs whitespace-pre overflow-x-auto p-6 rounded-lg bg-black text-green-500 shadow-lg"
+      style={{ lineHeight: '1.2' }}
+    >
+      {displayedAscii}
+    </pre>
+  ) : (
+    <pre 
+      className="font-mono text-xs whitespace-pre overflow-x-auto p-6 rounded-lg bg-black shadow-lg"
+      style={{ lineHeight: '1.2' }}
+      dangerouslySetInnerHTML={{ __html: displayedAscii }}
+    />
+  )}
+</div>
           </div>
         </div>
       </div>
